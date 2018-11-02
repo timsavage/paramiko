@@ -23,15 +23,16 @@ Compression implementations for a Transport.
 import zlib
 
 
-class ZlibCompressor (object):
+class ZlibCompressor(object):
     def __init__(self):
-        self.z = zlib.compressobj(9)
+        # Use the default level of zlib compression
+        self.z = zlib.compressobj()
 
     def __call__(self, data):
         return self.z.compress(data) + self.z.flush(zlib.Z_FULL_FLUSH)
 
 
-class ZlibDecompressor (object):
+class ZlibDecompressor(object):
     def __init__(self):
         self.z = zlib.decompressobj()
 

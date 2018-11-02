@@ -35,7 +35,8 @@ from paramiko.config import SSHConfig
 
 
 def inflate_long(s, always_positive=False):
-    """turns a normalized byte string into a long-int (adapted from Crypto.Util.number)"""
+    """turns a normalized byte string into a long-int
+    (adapted from Crypto.Util.number)"""
     out = long(0)
     negative = 0
     if not always_positive and (len(s) > 0) and (byte_ord(s[0]) >= 0x80):
@@ -48,22 +49,24 @@ def inflate_long(s, always_positive=False):
         # noinspection PyAugmentAssignment
         s = filler * (4 - len(s) % 4) + s
     for i in range(0, len(s), 4):
-        out = (out << 32) + struct.unpack('>I', s[i:i+4])[0]
+        out = (out << 32) + struct.unpack(">I", s[i : i + 4])[0]
     if negative:
-        out -= (long(1) << (8 * len(s)))
+        out -= long(1) << (8 * len(s))
     return out
+
 
 deflate_zero = zero_byte if PY2 else 0
 deflate_ff = max_byte if PY2 else 0xff
 
 
 def deflate_long(n, add_sign_padding=True):
-    """turns a long-int into a normalized byte string (adapted from Crypto.Util.number)"""
+    """turns a long-int into a normalized byte string
+    (adapted from Crypto.Util.number)"""
     # after much testing, this algorithm was deemed to be the fastest
     s = bytes()
     n = long(n)
     while (n != 0) and (n != -1):
-        s = struct.pack('>I', n & xffffffff) + s
+        s = struct.pack(">I", n & xffffffff) + s
         n >>= 32
     # strip off leading zeros, FFs
     for i in enumerate(s):
@@ -78,7 +81,7 @@ def deflate_long(n, add_sign_padding=True):
             s = zero_byte
         else:
             s = max_byte
-    s = s[i[0]:]
+    s = s[i[0] :]
     if add_sign_padding:
         if (n == 0) and (byte_ord(s[0]) >= 0x80):
             s = zero_byte + s
@@ -87,31 +90,33 @@ def deflate_long(n, add_sign_padding=True):
     return s
 
 
-def format_binary(data, prefix=''):
+def format_binary(data, prefix=""):
     x = 0
     out = []
     while len(data) > x + 16:
-        out.append(format_binary_line(data[x:x+16]))
+        out.append(format_binary_line(data[x : x + 16]))
         x += 16
     if x < len(data):
         out.append(format_binary_line(data[x:]))
-    return [prefix + x for x in out]
+    return [prefix + line for line in out]
 
 
 def format_binary_line(data):
-    left = ' '.join(['%02X' % byte_ord(c) for c in data])
-    right = ''.join([('.%c..' % c)[(byte_ord(c)+63)//95] for c in data])
-    return '%-50s %s' % (left, right)
+    left = " ".join(["{:02X}".format(byte_ord(c)) for c in data])
+    right = "".join(
+        [".{:c}..".format(byte_ord(c))[(byte_ord(c) + 63) // 95] for c in data]
+    )
+    return "{:50s} {}".format(left, right)
 
 
 def safe_string(s):
-    out = b('')
+    out = b""
     for c in s:
         i = byte_ord(c)
         if 32 <= i <= 127:
             out += byte_chr(i)
         else:
-            out += b('%%%02X' % i)
+            out += b("%{:02X}".format(i))
     return out
 
 
@@ -131,7 +136,7 @@ def bit_length(n):
 
 
 def tb_strings():
-    return ''.join(traceback.format_exception(*sys.exc_info())).split('\n')
+    return "".join(traceback.format_exception(*sys.exc_info())).split("\n")
 
 
 def generate_key_bytes(hash_alg, salt, key, nbytes):
@@ -182,6 +187,7 @@ def load_host_keys(filename):
         nested dict of `.PKey` objects, indexed by hostname and then keytype
     """
     from paramiko.hostkeys import HostKeys
+
     return HostKeys(filename)
 
 
@@ -215,6 +221,7 @@ def mod_inverse(x, m):
         u2 += m
     return u2
 
+
 _g_thread_ids = {}
 _g_thread_counter = 0
 _g_thread_lock = threading.Lock()
@@ -236,23 +243,27 @@ def get_thread_id():
 
 
 def log_to_file(filename, level=DEBUG):
-    """send paramiko logs to a logfile, if they're not already going somewhere"""
+    """send paramiko logs to a logfile,
+    if they're not already going somewhere"""
     l = logging.getLogger("paramiko")
     if len(l.handlers) > 0:
         return
     l.setLevel(level)
-    f = open(filename, 'w')
+    f = open(filename, "a")
     lh = logging.StreamHandler(f)
-    lh.setFormatter(logging.Formatter('%(levelname)-.3s [%(asctime)s.%(msecs)03d] thr=%(_threadid)-3d %(name)s: %(message)s',
-                                      '%Y%m%d-%H:%M:%S'))
+    frm = "%(levelname)-.3s [%(asctime)s.%(msecs)03d] thr=%(_threadid)-3d"
+    frm += " %(name)s: %(message)s"
+    lh.setFormatter(logging.Formatter(frm, "%Y%m%d-%H:%M:%S"))
     l.addHandler(lh)
 
 
 # make only one filter object, so it doesn't get applied more than once
-class PFilter (object):
+class PFilter(object):
     def filter(self, record):
         record._threadid = get_thread_id()
         return True
+
+
 _pfilter = PFilter()
 
 
@@ -277,7 +288,7 @@ def constant_time_bytes_eq(a, b):
         return False
     res = 0
     # noinspection PyUnresolvedReferences
-    for i in (xrange if PY2 else range)(len(a)):
+    for i in (xrange if PY2 else range)(len(a)):  # noqa: F821
         res |= byte_ord(a[i]) ^ byte_ord(b[i])
     return res == 0
 

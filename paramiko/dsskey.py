@@ -25,7 +25,8 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import dsa
 from cryptography.hazmat.primitives.asymmetric.utils import (
-    decode_dss_signature, encode_dss_signature
+    decode_dss_signature,
+    encode_dss_signature,
 )
 
 from paramiko import util
@@ -42,12 +43,21 @@ class DSSKey(PKey):
     data.
     """
 
-    def __init__(self, msg=None, data=None, filename=None, password=None, vals=None, file_obj=None):
+    def __init__(
+        self,
+        msg=None,
+        data=None,
+        filename=None,
+        password=None,
+        vals=None,
+        file_obj=None,
+    ):
         self.p = None
         self.q = None
         self.g = None
         self.y = None
         self.x = None
+        self.public_blob = None
         if file_obj is not None:
             self._from_private_key(file_obj, password)
             return
@@ -59,10 +69,11 @@ class DSSKey(PKey):
         if vals is not None:
             self.p, self.q, self.g, self.y = vals
         else:
-            if msg is None:
-                raise SSHException('Key object may not be empty')
-            if msg.get_text() != 'ssh-dss':
-                raise SSHException('Invalid key')
+            self._check_type_and_load_cert(
+                msg=msg,
+                key_type="ssh-dss",
+                cert_type="ssh-dss-cert-v01@openssh.com",
+            )
             self.p = msg.get_mpint()
             self.q = msg.get_mpint()
             self.g = msg.get_mpint()
@@ -71,7 +82,7 @@ class DSSKey(PKey):
 
     def asbytes(self):
         m = Message()
-        m.add_string('ssh-dss')
+        m.add_string("ssh-dss")
         m.add_mpint(self.p)
         m.add_mpint(self.q)
         m.add_mpint(self.g)
@@ -82,16 +93,10 @@ class DSSKey(PKey):
         return self.asbytes()
 
     def __hash__(self):
-        h = hash(self.get_name())
-        h = h * 37 + hash(self.p)
-        h = h * 37 + hash(self.q)
-        h = h * 37 + hash(self.g)
-        h = h * 37 + hash(self.y)
-        # h might be a long by now...
-        return hash(h)
+        return hash((self.get_name(), self.p, self.q, self.g, self.y))
 
     def get_name(self):
-        return 'ssh-dss'
+        return "ssh-dss"
 
     def get_bits(self):
         return self.size
@@ -105,18 +110,15 @@ class DSSKey(PKey):
             public_numbers=dsa.DSAPublicNumbers(
                 y=self.y,
                 parameter_numbers=dsa.DSAParameterNumbers(
-                    p=self.p,
-                    q=self.q,
-                    g=self.g
-                )
-            )
+                    p=self.p, q=self.q, g=self.g
+                ),
+            ),
         ).private_key(backend=default_backend())
-        signer = key.signer(hashes.SHA1())
-        signer.update(data)
-        r, s = decode_dss_signature(signer.finalize())
+        sig = key.sign(data, hashes.SHA1())
+        r, s = decode_dss_signature(sig)
 
         m = Message()
-        m.add_string('ssh-dss')
+        m.add_string("ssh-dss")
         # apparently, in rare cases, r or s may be shorter than 20 bytes!
         rstr = util.deflate_long(r, 0)
         sstr = util.deflate_long(s, 0)
@@ -133,7 +135,7 @@ class DSSKey(PKey):
             sig = msg.asbytes()
         else:
             kind = msg.get_text()
-            if kind != 'ssh-dss':
+            if kind != "ssh-dss":
                 return 0
             sig = msg.get_binary()
 
@@ -146,15 +148,11 @@ class DSSKey(PKey):
         key = dsa.DSAPublicNumbers(
             y=self.y,
             parameter_numbers=dsa.DSAParameterNumbers(
-                p=self.p,
-                q=self.q,
-                g=self.g
-            )
+                p=self.p, q=self.q, g=self.g
+            ),
         ).public_key(backend=default_backend())
-        verifier = key.verifier(signature, hashes.SHA1())
-        verifier.update(data)
         try:
-            verifier.verify()
+            key.verify(signature, data, hashes.SHA1())
         except InvalidSignature:
             return False
         else:
@@ -166,18 +164,16 @@ class DSSKey(PKey):
             public_numbers=dsa.DSAPublicNumbers(
                 y=self.y,
                 parameter_numbers=dsa.DSAParameterNumbers(
-                    p=self.p,
-                    q=self.q,
-                    g=self.g
-                )
-            )
+                    p=self.p, q=self.q, g=self.g
+                ),
+            ),
         ).private_key(backend=default_backend())
 
         self._write_private_key_file(
             filename,
             key,
             serialization.PrivateFormat.TraditionalOpenSSL,
-            password=password
+            password=password,
         )
 
     def write_private_key(self, file_obj, password=None):
@@ -186,18 +182,16 @@ class DSSKey(PKey):
             public_numbers=dsa.DSAPublicNumbers(
                 y=self.y,
                 parameter_numbers=dsa.DSAParameterNumbers(
-                    p=self.p,
-                    q=self.q,
-                    g=self.g
-                )
-            )
+                    p=self.p, q=self.q, g=self.g
+                ),
+            ),
         ).private_key(backend=default_backend())
 
         self._write_private_key(
             file_obj,
             key,
             serialization.PrivateFormat.TraditionalOpenSSL,
-            password=password
+            password=password,
         )
 
     @staticmethod
@@ -207,29 +201,31 @@ class DSSKey(PKey):
         generate a new host key or authentication key.
 
         :param int bits: number of bits the generated key should be.
-        :param function progress_func: Unused
+        :param progress_func: Unused
         :return: new `.DSSKey` private key
         """
         numbers = dsa.generate_private_key(
             bits, backend=default_backend()
         ).private_numbers()
-        key = DSSKey(vals=(
-            numbers.public_numbers.parameter_numbers.p,
-            numbers.public_numbers.parameter_numbers.q,
-            numbers.public_numbers.parameter_numbers.g,
-            numbers.public_numbers.y
-        ))
+        key = DSSKey(
+            vals=(
+                numbers.public_numbers.parameter_numbers.p,
+                numbers.public_numbers.parameter_numbers.q,
+                numbers.public_numbers.parameter_numbers.g,
+                numbers.public_numbers.y,
+            )
+        )
         key.x = numbers.x
         return key
 
-    ###  internals...
+    # ...internals...
 
     def _from_private_key_file(self, filename, password):
-        data = self._read_private_key_file('DSA', filename, password)
+        data = self._read_private_key_file("DSA", filename, password)
         self._decode_key(data)
 
     def _from_private_key(self, file_obj, password):
-        data = self._read_private_key('DSA', file_obj, password)
+        data = self._read_private_key("DSA", file_obj, password)
         self._decode_key(data)
 
     def _decode_key(self, data):
@@ -238,9 +234,11 @@ class DSSKey(PKey):
         try:
             keylist = BER(data).decode()
         except BERException as e:
-            raise SSHException('Unable to parse key file: ' + str(e))
-        if (type(keylist) is not list) or (len(keylist) < 6) or (keylist[0] != 0):
-            raise SSHException('not a valid DSA private key file (bad ber encoding)')
+            raise SSHException("Unable to parse key file: " + str(e))
+        if type(keylist) is not list or len(keylist) < 6 or keylist[0] != 0:
+            raise SSHException(
+                "not a valid DSA private key file (bad ber encoding)"
+            )
         self.p = keylist[1]
         self.q = keylist[2]
         self.g = keylist[3]
